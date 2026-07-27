@@ -1,0 +1,68 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Debian 12 - qualidade e testes
+    runs-on: ubuntu-24.04
+    container: debian:12-slim
+    timeout-minutes: 15
+    env:
+      DEBIAN_FRONTEND: noninteractive
+      LC_ALL: C.UTF-8
+      TZ: America/Sao_Paulo
+    steps:
+      # A imagem slim não traz git, mas o checkout precisa dele.
+      - name: Preparar checkout
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends bash ca-certificates git
+
+      - name: Baixar o código
+        uses: actions/checkout@v4
+
+      - name: Instalar ferramentas de CI
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            bash coreutils findutils grep sed mawk jq python3 \
+            shellcheck git ca-certificates util-linux
+
+      - name: Sintaxe Bash e Python
+        run: |
+          bash -n install.sh uninstall.sh bin/menu-teste lib/menu-teste/*.sh \
+            scripts/*.sh tests/*.sh
+          python3 - <<'PY'
+          from pathlib import Path
+
+          for path in sorted(Path(".").rglob("*.py")):
+              if ".git" not in path.parts:
+                  compile(path.read_bytes(), str(path), "exec")
+          PY
+
+      - name: ShellCheck
+        run: |
+          shellcheck -S warning -e SC2128,SC2178 -x -P SCRIPTDIR \
+            install.sh uninstall.sh bin/menu-teste scripts/*.sh
+          shellcheck -S warning -e SC2016 -x -P SCRIPTDIR tests/*.sh
+
+      - name: Manifesto e testes sem consumo de banda
+        run: ./scripts/verify-project.sh
+
+      - name: Pacote e checksum
+        run: |
+          ./scripts/package-release.sh
+          (cd dist && sha256sum -c menu-teste-$(tr -d '[:space:]' < ../VERSION).tar.gz.sha256)
+
+      - name: Smoke do instalador
+        run: |
+          ./install.sh --skip-packages
+          test "$(menu-teste --version)" = "menu-teste $(tr -d '[:space:]' < VERSION)"
+          menu-teste --help >/dev/null

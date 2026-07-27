@@ -1,0 +1,26 @@
+# Artefatos de desenvolvimento e de empacotamento
+dist/
+build/
+coverage/
+.cache/
+.pytest_cache/
+__pycache__/
+*.py[cod]
+
+# Saídas potencialmente sensíveis
+*.log
+*.pcap
+*.pcapng
+*.har
+relatorios/
+reports/
+
+# Configurações locais
+.env
+.env.*
+.venv/
+venv/
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

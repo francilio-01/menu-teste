@@ -1,0 +1,431 @@
+#!/usr/bin/env bash
+
+set -u
+set -o pipefail
+export LC_ALL=C
+
+MT_VERSION=0.3.2
+
+mt_find_library_dir() {
+    local script_dir
+    local candidate
+
+    script_dir=$(cd -P -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+    for candidate in \
+        "$script_dir/../lib/menu-teste" \
+        /usr/local/lib/menu-teste \
+        /usr/lib/menu-teste; do
+        if [[ -r $candidate/common.sh &&
+              -r $candidate/validate.sh &&
+              -r $candidate/report.sh &&
+              -r $candidate/probes.sh ]]; then
+            cd -P -- "$candidate" && pwd
+            return 0
+        fi
+    done
+    return 1
+}
+
+MT_LIBRARY_DIR=$(mt_find_library_dir) || {
+    printf 'menu-teste: bibliotecas não encontradas.\n' >&2
+    printf 'Execute pelo projeto completo ou reinstale com install.sh.\n' >&2
+    exit 1
+}
+
+# As bibliotecas são instaladas como root:root e não recebem dados remotos.
+# shellcheck source=../lib/menu-teste/validate.sh
+source "$MT_LIBRARY_DIR/validate.sh"
+# shellcheck source=../lib/menu-teste/common.sh
+source "$MT_LIBRARY_DIR/common.sh"
+# shellcheck source=../lib/menu-teste/report.sh
+source "$MT_LIBRARY_DIR/report.sh"
+# shellcheck source=../lib/menu-teste/probes.sh
+source "$MT_LIBRARY_DIR/probes.sh"
+
+mt_usage() {
+    cat <<'EOF'
+Uso:
+  menu-teste
+  menu-teste rapido
+  menu-teste resumo
+  menu-teste ping ALVO [QUANTIDADE]
+  menu-teste dns NOME [TIPO] [SERVIDOR_DNS]
+  menu-teste porta ALVO PORTA[,PORTA...]
+  menu-teste http URL
+  menu-teste rota ALVO [CICLOS]
+  menu-teste speedtest [auto|ID|HOSTNAME]
+  menu-teste speedtest-servidores
+  menu-teste fast
+  menu-teste minhaconexao
+  menu-teste noc ALVO [PORTAS_TCP] [URL]
+  menu-teste verificar
+  menu-teste --ultimo-relatorio
+  menu-teste --version
+  menu-teste --help
+
+Sem argumentos, abre o menu interativo.
+
+Variáveis opcionais:
+  MENU_TESTE_REPORT_DIR   Diretório onde os relatórios serão gravados.
+  MENU_TESTE_PING_TARGET Alvo IP usado no diagnóstico rápido.
+  MENU_TESTE_DNS_TARGET  Nome DNS usado no diagnóstico rápido.
+  MENU_TESTE_HTTP_TARGET URL usada no diagnóstico rápido.
+  NO_COLOR               Desativa cores ANSI.
+
+O menu não altera firewall, rotas, DNS ou interfaces.
+EOF
+}
+
+mt_check_dependencies() {
+    local command_name
+    local package_name
+    local missing=0
+    local -a dependencies=(
+        'ip:iproute2'
+        'ss:iproute2'
+        'ping:iputils-ping'
+        'dig:bind9-dnsutils'
+        'curl:curl'
+        'nc:netcat-openbsd'
+        'traceroute:traceroute'
+        'mtr:mtr-tiny'
+        'nmap:nmap'
+        'iperf3:iperf3'
+        'ethtool:ethtool'
+        'openssl:openssl'
+        'jq:jq'
+        'python3:python3-minimal'
+        'timeout:coreutils'
+    )
+
+    printf '\n%-16s %-22s %s\n' COMANDO PACOTE ESTADO
+    printf '%-16s %-22s %s\n' '----------------' '----------------------' '--------'
+    for dependency in "${dependencies[@]}"; do
+        command_name=${dependency%%:*}
+        package_name=${dependency#*:}
+        if mt_command_available "$command_name"; then
+            printf '%-16s %-22s OK\n' "$command_name" "$package_name"
+        else
+            printf '%-16s %-22s AUSENTE\n' "$command_name" "$package_name"
+            ((missing += 1))
+        fi
+    done
+
+    if mt_command_available speedtest; then
+        printf '%-16s %-22s OK (opcional)\n' speedtest speedtest
+    else
+        printf '%-16s %-22s AUSENTE (opcional)\n' speedtest speedtest
+    fi
+
+    if mt_fast_dependencies_available; then
+        printf '%-16s %-22s OK (experimental)\n' \
+            fast.com 'chromium + selenium'
+    else
+        printf '%-16s %-22s AUSENTE (opcional)\n' \
+            fast.com 'chromium + selenium'
+    fi
+
+    if ((missing == 0)); then
+        mt_ok 'Todas as dependências principais estão instaladas.'
+        return 0
+    fi
+
+    mt_warn "$missing dependência(s) principal(is) ausente(s)."
+    mt_info 'No projeto, execute: sudo ./install.sh'
+    return 1
+}
+
+mt_ports_menu() {
+    local option
+
+    while true; do
+        mt_header
+        cat <<'EOF'
+PORTAS
+  1) Testar uma lista curta de portas TCP
+  2) Identificar serviços TCP com nmap
+  3) Testar portas UDP com nmap
+  4) Mostrar portas locais em escuta
+  0) Voltar
+EOF
+        mt_prompt option 'Escolha' '' || return 0
+        case $option in
+            1) mt_probe_tcp_ports_interactive; mt_pause ;;
+            2) mt_probe_tcp_services_interactive; mt_pause ;;
+            3) mt_probe_udp_interactive; mt_pause ;;
+            4) mt_probe_local_ports; mt_pause ;;
+            0) return 0 ;;
+            *) mt_error 'Opção inválida.'; mt_pause ;;
+        esac
+    done
+}
+
+mt_web_menu() {
+    local option
+
+    while true; do
+        mt_header
+        cat <<'EOF'
+HTTP/HTTPS E TLS
+  1) Medir HTTP/HTTPS e seus tempos
+  2) Testar handshake TLS
+  0) Voltar
+EOF
+        mt_prompt option 'Escolha' '' || return 0
+        case $option in
+            1) mt_probe_http_interactive; mt_pause ;;
+            2) mt_probe_tls_interactive; mt_pause ;;
+            0) return 0 ;;
+            *) mt_error 'Opção inválida.'; mt_pause ;;
+        esac
+    done
+}
+
+mt_bandwidth_menu() {
+    local option
+
+    while true; do
+        mt_header
+        cat <<'EOF'
+BANDA
+  1) Ookla Speedtest com seleção automática
+  2) Listar servidores Ookla disponíveis
+  3) Ookla escolhendo o ID do servidor
+  4) Ookla escolhendo o hostname do servidor
+  5) Fast.com (web experimental; servidor automático)
+  6) Minha Conexão (teste oficial exige navegador)
+  7) iperf3 cliente
+  8) iperf3 servidor temporário
+  0) Voltar
+EOF
+        mt_prompt option 'Escolha' '' || return 0
+        case $option in
+            1) mt_probe_speedtest; mt_pause ;;
+            2) mt_probe_speedtest_servers; mt_pause ;;
+            3) mt_probe_speedtest_by_id_interactive; mt_pause ;;
+            4) mt_probe_speedtest_by_host_interactive; mt_pause ;;
+            5) mt_probe_fast; mt_pause ;;
+            6) mt_probe_minhaconexao_info; mt_pause ;;
+            7) mt_probe_iperf_client_interactive; mt_pause ;;
+            8) mt_probe_iperf_server_interactive; mt_pause ;;
+            0) return 0 ;;
+            *) mt_error 'Opção inválida.'; mt_pause ;;
+        esac
+    done
+}
+
+mt_main_menu() {
+    local option
+
+    while true; do
+        mt_header
+        cat <<'EOF'
+MENU PRINCIPAL
+  1) Diagnóstico rápido
+  2) Sistema, interfaces e link
+  3) Ping e perda
+  4) Consulta DNS
+  5) Rota e MTR
+  6) Testes de portas
+  7) HTTP/HTTPS e TLS
+  8) Testes de banda
+  9) Relatório direcionado ao NOC
+ 10) Verificar dependências
+ 11) Mostrar arquivos do relatório atual
+  0) Sair
+EOF
+        mt_prompt option 'Escolha' '' || return 0
+        case $option in
+            1) mt_probe_quick; mt_pause ;;
+            2)
+                mt_probe_system_summary
+                mt_probe_link_interactive
+                mt_pause
+                ;;
+            3) mt_probe_ping_interactive; mt_pause ;;
+            4) mt_probe_dns_interactive; mt_pause ;;
+            5) mt_probe_route_interactive; mt_pause ;;
+            6) mt_ports_menu ;;
+            7) mt_web_menu ;;
+            8) mt_bandwidth_menu ;;
+            9) mt_probe_noc_interactive; mt_pause ;;
+            10) mt_check_dependencies || true; mt_pause ;;
+            11) mt_report_paths; mt_pause ;;
+            0)
+                mt_report_checksum
+                mt_report_paths
+                return 0
+                ;;
+            *) mt_error 'Opção inválida.'; mt_pause ;;
+        esac
+    done
+}
+
+mt_latest_report() {
+    local report_dir
+    local latest
+
+    report_dir=$(mt_report_base_dir)
+    latest=$(find "$report_dir" -maxdepth 1 -type f -name '*.txt' \
+        -printf '%T@ %p\n' 2>/dev/null | sort -nr | head -n 1 | cut -d' ' -f2-)
+    if [[ -n $latest ]]; then
+        printf '%s\n' "$latest"
+    else
+        mt_error 'Nenhum relatório foi encontrado.'
+        return 1
+    fi
+}
+
+mt_dispatch() {
+    local command=${1:-}
+    local result=0
+
+    case $command in
+        '')
+            mt_report_init || exit 1
+            mt_main_menu
+            ;;
+        --help | -h | ajuda)
+            mt_usage
+            ;;
+        --version | -V)
+            printf 'menu-teste %s\n' "$MT_VERSION"
+            ;;
+        --ultimo-relatorio)
+            mt_latest_report
+            ;;
+        verificar)
+            mt_check_dependencies
+            ;;
+        rapido)
+            mt_report_init || exit 1
+            mt_probe_quick
+            ;;
+        resumo)
+            mt_report_init || exit 1
+            mt_probe_system_summary
+            mt_report_paths
+            ;;
+        ping)
+            [[ $# -ge 2 ]] || {
+                mt_error 'Uso: menu-teste ping ALVO [QUANTIDADE]'
+                return 2
+            }
+            mt_report_init || exit 1
+            mt_probe_ping "$2" "${3:-4}" || result=$?
+            mt_report_paths
+            return "$result"
+            ;;
+        dns)
+            [[ $# -ge 2 ]] || {
+                mt_error 'Uso: menu-teste dns NOME [TIPO] [SERVIDOR_DNS]'
+                return 2
+            }
+            mt_report_init || exit 1
+            mt_probe_dns "$2" "${3:-A}" "${4:-}" || result=$?
+            mt_report_paths
+            return "$result"
+            ;;
+        porta)
+            [[ $# -ge 3 ]] || {
+                mt_error 'Uso: menu-teste porta ALVO PORTA[,PORTA...]'
+                return 2
+            }
+            mt_report_init || exit 1
+            mt_probe_tcp_ports "$2" "$3" || result=$?
+            mt_report_paths
+            return "$result"
+            ;;
+        http)
+            [[ $# -ge 2 ]] || {
+                mt_error 'Uso: menu-teste http URL'
+                return 2
+            }
+            mt_report_init || exit 1
+            mt_probe_http "$2" || result=$?
+            mt_report_paths
+            return "$result"
+            ;;
+        rota)
+            [[ $# -ge 2 ]] || {
+                mt_error 'Uso: menu-teste rota ALVO [CICLOS]'
+                return 2
+            }
+            mt_report_init || exit 1
+            mt_probe_route "$2" "${3:-10}" || result=$?
+            mt_report_paths
+            return "$result"
+            ;;
+        speedtest-servidores)
+            [[ $# -eq 1 ]] || {
+                mt_error 'Uso: menu-teste speedtest-servidores'
+                return 2
+            }
+            mt_report_init || exit 1
+            mt_probe_speedtest_servers || result=$?
+            mt_report_paths
+            return "$result"
+            ;;
+        speedtest)
+            [[ $# -le 2 ]] || {
+                mt_error 'Uso: menu-teste speedtest [auto|ID|HOSTNAME]'
+                return 2
+            }
+            mt_report_init || exit 1
+            case ${2:-auto} in
+                auto | automatico | automático)
+                    mt_probe_speedtest auto || result=$?
+                    ;;
+                *)
+                    if mt_valid_speedtest_server_id "${2:-}"; then
+                        mt_probe_speedtest id "$2" || result=$?
+                    elif mt_valid_speedtest_server_host "${2:-}"; then
+                        mt_probe_speedtest host "$2" || result=$?
+                    else
+                        mt_error 'Informe auto, um ID numérico ou um hostname válido.'
+                        result=2
+                    fi
+                    ;;
+            esac
+            mt_report_paths
+            return "$result"
+            ;;
+        fast | fast.com | fastcom)
+            [[ $# -eq 1 ]] || {
+                mt_error 'Uso: menu-teste fast'
+                return 2
+            }
+            mt_report_init || exit 1
+            mt_probe_fast || result=$?
+            mt_report_paths
+            return "$result"
+            ;;
+        minhaconexao | minha-conexao)
+            [[ $# -eq 1 ]] || {
+                mt_error 'Uso: menu-teste minhaconexao'
+                return 2
+            }
+            mt_report_init || exit 1
+            mt_probe_minhaconexao_info || result=$?
+            mt_report_paths
+            return "$result"
+            ;;
+        noc)
+            [[ $# -ge 2 ]] || {
+                mt_error 'Uso: menu-teste noc ALVO [PORTAS_TCP] [URL]'
+                return 2
+            }
+            mt_report_init || exit 1
+            mt_probe_noc "$2" "${3:-22,53,80,443}" "${4:-}"
+            ;;
+        *)
+            mt_error "Comando desconhecido: $command"
+            mt_usage
+            return 2
+            ;;
+    esac
+}
+
+trap mt_report_cleanup EXIT
+mt_install_signal_handlers
+mt_dispatch "$@"

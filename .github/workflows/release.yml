@@ -1,0 +1,56 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    name: Empacotar e publicar a versão marcada
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Baixar o código completo
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Preparar ferramentas
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends jq python3
+
+      - name: Validar a tag e a versão
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag=${GITHUB_REF_NAME}
+          [[ $tag =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]
+          version=${tag#v}
+          test "$version" = "$(tr -d '[:space:]' < VERSION)"
+          test "$version" = "$(sed -n 's/^MT_VERSION=//p' bin/menu-teste | head -n 1)"
+          test "$version" = "$(sed -n \
+            's/^MT_VERSION=${MT_VERSION:-\([0-9][0-9.]*\)}$/\1/p' \
+            lib/menu-teste/common.sh | head -n 1)"
+
+      - name: Validar o projeto sem executar medições
+        run: ./scripts/verify-project.sh
+
+      - name: Criar pacote e checksum
+        run: ./scripts/package-release.sh
+
+      - name: Publicar no GitHub
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          gh release create "$GITHUB_REF_NAME" \
+            "dist/menu-teste-${version}.tar.gz" \
+            "dist/menu-teste-${version}.tar.gz.sha256" \
+            --verify-tag --generate-notes \
+            --title "menu-teste ${version}"
