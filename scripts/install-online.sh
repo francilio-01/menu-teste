@@ -11,8 +11,8 @@ Uso:
   install-online.sh ORGANIZACAO/REPOSITORIO --ref vX.Y.Z [opções-do-install.sh]
 
 Exemplo (tag fixada):
-  curl -fsSL https://raw.githubusercontent.com/ORGANIZACAO/menu-teste/v0.3.2/scripts/install-online.sh |
-    sudo bash -s -- ORGANIZACAO/menu-teste --ref v0.3.2 --recommended
+  curl -fsSL https://raw.githubusercontent.com/francilio-01/menu-teste/v0.3.2/scripts/install-online.sh |
+    sudo bash -s -- francilio-01/menu-teste --ref v0.3.2 --recommended
 
 O script baixa o tarball e o checksum da release, confere sha256sum e somente
 então chama o install.sh. A revisão por clone continua sendo a opção preferida

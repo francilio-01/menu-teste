@@ -1,42 +1,41 @@
 # Publicação no GitHub
 
-A pasta foi preparada para virar um repositório independente, mas não foi
-inicializado nem recebeu um remote porque o nome da conta e a URL ainda não
-foram informados.
+O projeto está publicado como repositório público em:
+
+```text
+https://github.com/francilio-01/menu-teste
+```
 
 ## Checklist antes do primeiro push
 
 - [ ] trocar a senha/credenciais usadas na implantação da VM;
 - [ ] escolher e adicionar `LICENSE` com o titular correto;
-- [ ] substituir `ORGANIZACAO/menu-teste` nos exemplos, se desejado;
+- [x] substituir os exemplos pela URL pública do projeto;
 - [ ] revisar `README.md`, termos da Ookla e a política de uso do NOC;
 - [ ] confirmar que não há relatórios, PCAPs, chaves, cookies ou `.env`;
-- [ ] executar `./scripts/verify-project.sh`;
-- [ ] executar `./scripts/package-release.sh` e conferir o checksum;
+- [x] executar `./scripts/verify-project.sh`;
+- [x] executar `./scripts/package-release.sh` e conferir o checksum;
 - [ ] proteger `main` e tags de release no GitHub;
 - [ ] revisar permissões do workflow de release (`contents: write`).
 
 Sem `LICENSE`, o GitHub pode armazenar o código, mas terceiros não recebem
 permissão automática para reutilizar, modificar ou redistribuir.
 
-## Criar o repositório e enviar
+## Clonar o repositório
 
-Crie no GitHub um repositório vazio, sem README, licença ou `.gitignore`
-gerados pelo site. Depois, no terminal:
+Para obter uma nova cópia:
 
 ```bash
-cd "/caminho/para/menu-teste"
-git init
-git branch -M main
-git add .
-git diff --cached --check
-git commit -m "Initial release v0.3.2"
-git remote add origin https://github.com/ORGANIZACAO/menu-teste.git
-git push -u origin main
+git clone https://github.com/francilio-01/menu-teste.git
+cd menu-teste
 ```
 
-Se o repositório já tiver conteúdo, faça `git fetch` e integre-o
-deliberadamente; não sobrescreva histórico de outra pessoa.
+Em uma cópia local que ainda não possua remote:
+
+```bash
+git remote add origin https://github.com/francilio-01/menu-teste.git
+git push -u origin main
+```
 
 ## Criar uma release
 
@@ -58,8 +57,8 @@ Com a release publicada:
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/ORGANIZACAO/menu-teste/v0.3.2/scripts/install-online.sh |
-  sudo bash -s -- ORGANIZACAO/menu-teste --ref v0.3.2 --recommended
+  https://raw.githubusercontent.com/francilio-01/menu-teste/v0.3.2/scripts/install-online.sh |
+  sudo bash -s -- francilio-01/menu-teste --ref v0.3.2 --recommended
 ```
 
 Para maior controle, baixe os dois artefatos da página da release, rode

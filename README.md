@@ -31,7 +31,7 @@ O caminho recomendado é revisar o código clonado e instalar o perfil completo
 para os testes de banda:
 
 ```bash
-git clone URL_DO_SEU_REPOSITORIO/menu-teste.git
+git clone https://github.com/francilio-01/menu-teste.git
 cd menu-teste
 sudo ./install.sh --recommended
 ```
@@ -68,8 +68,8 @@ verificação SHA-256 automática; não use uma branch móvel em produção:
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/ORGANIZACAO/menu-teste/v0.3.2/scripts/install-online.sh |
-  sudo bash -s -- ORGANIZACAO/menu-teste --ref v0.3.2 --recommended
+  https://raw.githubusercontent.com/francilio-01/menu-teste/v0.3.2/scripts/install-online.sh |
+  sudo bash -s -- francilio-01/menu-teste --ref v0.3.2 --recommended
 ```
 
 O instalador remoto baixa somente o artefato e o checksum da release indicada.

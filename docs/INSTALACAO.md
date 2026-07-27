@@ -65,8 +65,8 @@ essa conferência automaticamente:
 
 ```bash
 curl -fsSL \
-  https://raw.githubusercontent.com/ORGANIZACAO/menu-teste/v0.3.2/scripts/install-online.sh |
-  sudo bash -s -- ORGANIZACAO/menu-teste --ref v0.3.2 --recommended
+  https://raw.githubusercontent.com/francilio-01/menu-teste/v0.3.2/scripts/install-online.sh |
+  sudo bash -s -- francilio-01/menu-teste --ref v0.3.2 --recommended
 ```
 
 `--ref` deve ser uma tag semver (`vX.Y.Z`). O script baixa o tarball e o
